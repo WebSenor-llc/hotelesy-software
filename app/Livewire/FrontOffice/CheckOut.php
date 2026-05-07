@@ -129,6 +129,34 @@ class CheckOut extends Component
             'status_changed_by' => auth()->id(),
         ]);
 
+        // ============================================================
+        // AUTO-ISSUE GST TAX INVOICE — Section 31, Rule 46 of CGST Rules
+        // The "time of supply" for accommodation is at supply completion
+        // (check-out), so this is the legally correct moment to issue the
+        // tax invoice. Idempotent — reuses if one already exists for this folio.
+        // ============================================================
+        $invoice = null;
+        $invoiceError = null;
+        if ($folio) {
+            try {
+                $existing = \App\Models\TaxInvoice::where('source_type', \App\Models\Folio::class)
+                    ->where('source_id', $folio->id)
+                    ->orderByDesc('id')
+                    ->first();
+                if ($existing) {
+                    $invoice = $existing;
+                } else {
+                    $invoice = app(\App\Services\Tax\InvoiceBuilder::class)
+                        ->buildFromFolio($folio->fresh(), auth()->id());
+                }
+            } catch (\Throwable $e) {
+                // Don't block the checkout if invoice generation fails — log it
+                // and surface a warning so the cashier can issue manually later.
+                \Log::warning('Auto-issue tax invoice failed at checkout: ' . $e->getMessage());
+                $invoiceError = $e->getMessage();
+            }
+        }
+
         $finalBalance = $folio ? max(0, (float) $folio->fresh()->balance) : 0;
         $guestName = $reservation->guest_name;
         $resNum    = $reservation->reservation_number;
@@ -148,7 +176,15 @@ class CheckOut extends Component
         } else {
             $parts[] = "Folio settled in full";
         }
+        if ($invoice) {
+            $parts[] = "GST invoice {$invoice->invoice_number} issued";
+            session()->flash('issued_invoice_id', $invoice->id);
+            session()->flash('issued_invoice_number', $invoice->invoice_number);
+        }
         session()->flash('success', implode(' · ', $parts));
+        if ($invoiceError) {
+            session()->flash('warning', "Invoice could not be auto-generated: {$invoiceError}. Issue manually from the folio.");
+        }
     }
 
     public function render()

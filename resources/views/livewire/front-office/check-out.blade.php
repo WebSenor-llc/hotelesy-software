@@ -4,8 +4,20 @@
 
     {{-- Flash messages --}}
     @if(session('success'))
-        <div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-sm">
-            {{ session('success') }}
+        <div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-sm flex items-center justify-between gap-3 flex-wrap">
+            <span>{{ session('success') }}</span>
+            @if($invId = session('issued_invoice_id'))
+                <span class="flex items-center gap-2">
+                    <a href="{{ route('invoice.show', $invId) }}" target="_blank"
+                       class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded text-xs">
+                       ⚖ View invoice {{ session('issued_invoice_number') }}
+                    </a>
+                    <a href="{{ route('invoice.pdf', $invId) }}" target="_blank"
+                       class="bg-white border border-emerald-300 hover:bg-emerald-50 text-emerald-800 font-semibold px-3 py-1.5 rounded text-xs">
+                       PDF
+                    </a>
+                </span>
+            @endif
         </div>
     @endif
     @if(session('warning'))
