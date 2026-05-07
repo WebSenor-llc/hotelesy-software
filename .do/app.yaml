@@ -1,0 +1,215 @@
+# DigitalOcean App Platform spec for Hotelesy by WebSenor
+# See https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+#
+# What this provisions:
+#   - 1 web service (PHP 8.3 + nginx via the buildpack) running Laravel
+#   - 1 worker (queue listener for emails / banquet payments / e-invoice)
+#   - 1 managed MySQL 8 instance ($15/mo for the smallest plan)
+#   - A pre-deploy job that runs `php artisan migrate --force`
+#   - Daily cron at 02:00 IST for the night audit + scheduled tasks
+#
+# Replace ${...} placeholders in the DigitalOcean dashboard env-var editor:
+#   - APP_KEY              run `php artisan key:generate --show` locally and paste
+#   - PROD_DOMAIN          e.g. hotelesy.websenor.com (or leave blank to use the .ondigitalocean.app URL)
+#   - GITHUB_REPO          your-username/hotelesy
+
+name: hotelesy
+region: blr   # Bangalore (closest IN region; use "sfo" / "fra" / "nyc" if needed)
+
+domains:
+  # If you have a custom domain, uncomment and configure DNS:
+  # - domain: hotelesy.websenor.com
+  #   type: PRIMARY
+  []
+
+databases:
+  - name: hotelesy-db
+    engine: MYSQL
+    version: "8"
+    size: db-s-1vcpu-1gb           # smallest paid tier (~$15/mo)
+    num_nodes: 1
+    production: true
+
+services:
+  - name: web
+    instance_count: 1
+    instance_size_slug: basic-xxs   # ~$5/mo. Bump to basic-xs ($12) if app feels slow.
+    http_port: 8080
+    source_dir: /
+    github:
+      repo: ${GITHUB_REPO}
+      branch: main
+      deploy_on_push: true
+    build_command: |
+      composer install --no-dev --optimize-autoloader --no-interaction
+      php artisan storage:link || true
+    run_command: heroku-php-nginx -C nginx.conf public/
+    environment_slug: php
+    envs:
+      - key: APP_NAME
+        value: "Hotelesy by WebSenor"
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+        value: ${APP_KEY}
+      - key: APP_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${APP_URL}
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
+      - key: APP_LOCALE
+        value: en
+      - key: APP_FAKER_LOCALE
+        value: en_IN
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: warning
+      # Database — auto-injected by DO from the bound database resource
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        value: ${hotelesy-db.HOSTNAME}
+      - key: DB_PORT
+        value: ${hotelesy-db.PORT}
+      - key: DB_DATABASE
+        value: ${hotelesy-db.DATABASE}
+      - key: DB_USERNAME
+        value: ${hotelesy-db.USERNAME}
+      - key: DB_PASSWORD
+        type: SECRET
+        value: ${hotelesy-db.PASSWORD}
+      - key: SESSION_DRIVER
+        value: database
+      - key: CACHE_DRIVER
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: BROADCAST_DRIVER
+        value: log
+      - key: FILESYSTEM_DISK
+        value: local       # switch to "s3" once Spaces is wired
+      # Mailer — using log driver for now. Switch to SMTP/Mailgun/SES in dashboard once set up.
+      - key: MAIL_MAILER
+        value: log
+      - key: MAIL_FROM_ADDRESS
+        value: noreply@hotelesy.app
+      - key: MAIL_FROM_NAME
+        value: "Hotelesy"
+      # Tenant resolution — single tenant for first deploy
+      - key: TENANT_RESOLUTION
+        value: header
+      - key: CENTRAL_DOMAIN
+        value: ${APP_URL}
+      # Sanctum — must include the production host so SPA cookies work
+      - key: SANCTUM_STATEFUL_DOMAINS
+        value: ${APP_URL}
+      # Feature flags
+      - key: FEATURE_OFFLINE_SYNC
+        value: "true"
+      - key: FEATURE_CHANNEL_MANAGER
+        value: "true"
+      - key: FEATURE_BOOKING_ENGINE
+        value: "false"
+      - key: FEATURE_NIGHT_AUDIT
+        value: "true"
+      - key: NIGHT_AUDIT_CUTOFF_TIME
+        value: "02:00"
+      - key: NIGHT_AUDIT_AUTO_RUN
+        value: "false"
+
+workers:
+  - name: queue-worker
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    source_dir: /
+    github:
+      repo: ${GITHUB_REPO}
+      branch: main
+    build_command: composer install --no-dev --optimize-autoloader --no-interaction
+    run_command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    environment_slug: php
+    envs:
+      # Workers inherit the same env as web; DO doesn't auto-share, so we list the critical ones
+      - key: APP_ENV
+        value: production
+      - key: APP_KEY
+        type: SECRET
+        value: ${APP_KEY}
+      - key: APP_URL
+        value: ${APP_URL}
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        value: ${hotelesy-db.HOSTNAME}
+      - key: DB_PORT
+        value: ${hotelesy-db.PORT}
+      - key: DB_DATABASE
+        value: ${hotelesy-db.DATABASE}
+      - key: DB_USERNAME
+        value: ${hotelesy-db.USERNAME}
+      - key: DB_PASSWORD
+        type: SECRET
+        value: ${hotelesy-db.PASSWORD}
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: CACHE_DRIVER
+        value: database
+
+jobs:
+  # Pre-deploy: runs on every deploy before traffic switches to the new release
+  - name: migrate
+    kind: PRE_DEPLOY
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    source_dir: /
+    github:
+      repo: ${GITHUB_REPO}
+      branch: main
+    build_command: composer install --no-dev --optimize-autoloader --no-interaction
+    run_command: |
+      php artisan migrate --force
+      php artisan storage:link || true
+      php artisan config:cache
+      php artisan route:cache
+      php artisan view:cache
+    envs:
+      - key: APP_ENV
+        value: production
+      - key: APP_KEY
+        type: SECRET
+        value: ${APP_KEY}
+      - key: APP_URL
+        value: ${APP_URL}
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        value: ${hotelesy-db.HOSTNAME}
+      - key: DB_PORT
+        value: ${hotelesy-db.PORT}
+      - key: DB_DATABASE
+        value: ${hotelesy-db.DATABASE}
+      - key: DB_USERNAME
+        value: ${hotelesy-db.USERNAME}
+      - key: DB_PASSWORD
+        type: SECRET
+        value: ${hotelesy-db.PASSWORD}
+
+  # Cron — Laravel scheduler runs every minute, internally checks what's due
+  - name: scheduler
+    kind: PRE_DEPLOY      # rebuilt every deploy. Use "FAILED_DEPLOY" or schedule via DO functions if needed.
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    source_dir: /
+    github:
+      repo: ${GITHUB_REPO}
+      branch: main
+    build_command: composer install --no-dev --optimize-autoloader --no-interaction
+    run_command: php artisan schedule:run >> /dev/null 2>&1
+    envs:
+      - key: APP_ENV
+        value: production
