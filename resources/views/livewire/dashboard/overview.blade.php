@@ -305,9 +305,62 @@
                                         $room->status === 'inspected' => 'bg-emerald-600 text-white',
                                         default => 'bg-emerald-400 text-emerald-900',
                                     };
+                                    $stays = $roomStayDetails[$room->id] ?? collect();
+                                    $hasStay = $stays->isNotEmpty();
                                 @endphp
-                                <div class="rounded-md {{ $color }} px-1.5 py-1.5 text-center transition hover:scale-110 hover:shadow cursor-pointer" title="{{ $room->number }} · {{ str_replace('_',' ',$room->status) }}">
-                                    <div class="text-xs font-bold leading-tight">{{ $room->number }}</div>
+                                <div x-data="{ open: false }"
+                                     class="relative">
+                                    <div @mouseenter="open = true" @mouseleave="open = false"
+                                         class="rounded-md {{ $color }} px-1.5 py-1.5 text-center transition hover:scale-110 hover:shadow cursor-pointer">
+                                        <div class="text-xs font-bold leading-tight">{{ $room->number }}</div>
+                                    </div>
+                                    {{-- Popover --}}
+                                    <div x-show="open" x-cloak
+                                         x-transition:enter="transition ease-out duration-150"
+                                         x-transition:enter-start="opacity-0 -translate-y-1"
+                                         x-transition:enter-end="opacity-100 translate-y-0"
+                                         class="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-30 w-64 pointer-events-none">
+                                        <div class="bg-slate-900 text-white text-xs rounded-lg shadow-xl p-3">
+                                            <div class="flex items-center justify-between gap-2 mb-1.5">
+                                                <span class="font-bold text-sm">🛏 Room {{ $room->number }}</span>
+                                                <span class="uppercase tracking-wider text-[9px] px-1.5 py-0.5 rounded
+                                                    {{ in_array($room->status, ['occupied_clean','occupied_dirty']) ? 'bg-rose-500' : '' }}
+                                                    {{ $room->status === 'vacant_clean' ? 'bg-emerald-500' : '' }}
+                                                    {{ $room->status === 'vacant_dirty' ? 'bg-amber-500 text-amber-900' : '' }}
+                                                    {{ in_array($room->status, ['out_of_order','out_of_service','blocked']) ? 'bg-slate-600' : '' }}
+                                                ">{{ str_replace('_',' ', $room->status) }}</span>
+                                            </div>
+                                            <div class="text-[10px] text-slate-400">F{{ $room->floor }}{{ $room->wing ? ' · '.$room->wing : '' }}{{ $room->view ? ' · '.$room->view.' view' : '' }}</div>
+                                            @if($hasStay)
+                                                <div class="border-t border-slate-700 mt-2 pt-2 space-y-2">
+                                                    @foreach($stays as $stay)
+                                                        <div>
+                                                            <div class="font-semibold text-white">👤 {{ $stay['guest_name'] }}</div>
+                                                            @if(!empty($stay['reservation_number']))
+                                                                <div class="text-[10px] text-slate-300 font-mono">{{ $stay['reservation_number'] }}</div>
+                                                            @endif
+                                                            <div class="text-[11px] text-slate-300 mt-1">
+                                                                <span class="text-emerald-400">From</span> {{ $stay['arrival_date'] ?? '—' }}
+                                                                <span class="text-rose-400 ml-2">Till</span> {{ $stay['departure_date'] ?? '—' }}
+                                                                @if(!empty($stay['nights']))<span class="text-slate-500 ml-2">· {{ $stay['nights'] }}N</span>@endif
+                                                            </div>
+                                                            @if(!empty($stay['status']) && $stay['status'] !== 'checked_in')
+                                                                <div class="text-[10px] mt-0.5 text-amber-300">{{ str_replace('_',' ', $stay['status']) }}</div>
+                                                            @endif
+                                                        </div>
+                                                    @endforeach
+                                                </div>
+                                            @elseif($room->status === 'vacant_clean' || $room->status === 'inspected')
+                                                <div class="text-[11px] text-emerald-400 mt-2">✓ Available · ready to sell</div>
+                                            @elseif(in_array($room->status, ['out_of_order','out_of_service','blocked']))
+                                                <div class="text-[11px] text-amber-400 mt-2">⚠ Unavailable</div>
+                                            @else
+                                                <div class="text-[11px] text-slate-400 mt-2">No active stay</div>
+                                            @endif
+                                            {{-- Arrow --}}
+                                            <div class="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
+                                        </div>
+                                    </div>
                                 </div>
                             @endforeach
                         </div>

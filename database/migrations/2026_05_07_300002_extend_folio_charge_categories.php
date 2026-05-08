@@ -15,6 +15,9 @@ return new class extends Migration {
     {
         if (! Schema::hasTable('folio_charges')) return;
 
+        // SQLite (desktop build) stores enums as TEXT — widening is a no-op.
+        if (DB::connection()->getDriverName() !== 'mysql') return;
+
         DB::statement("
             ALTER TABLE folio_charges
             MODIFY COLUMN category ENUM(
@@ -54,6 +57,7 @@ return new class extends Migration {
     public function down(): void
     {
         if (! Schema::hasTable('folio_charges')) return;
+        if (DB::connection()->getDriverName() !== 'mysql') return;
 
         // Revert any new categories to 'misc' before shrinking the enum
         DB::table('folio_charges')

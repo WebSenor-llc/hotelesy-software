@@ -36,3 +36,10 @@ Schedule::command('reservations:auto-no-show')
     ->hourly()
     ->withoutOverlapping(60)
     ->onOneServer();
+
+/* ---- Desktop edition: silent license re-validation ---- */
+if (env('APP_MODE') === 'desktop') {
+    Schedule::command('desktop:phone-home')
+        ->dailyAt('03:00')
+        ->withoutOverlapping(15);
+}

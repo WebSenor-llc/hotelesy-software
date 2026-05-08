@@ -11,8 +11,13 @@ use Livewire\Component;
 #[Layout('layouts.app-shell')]
 class FormCPrint extends Component
 {
-    public Reservation $reservation;
-    public ?FormCSubmission $submission = null;
+    /**
+     * Untyped — typed public Reservation property triggers Livewire's
+     * ImplicitRouteBinding which collides with the BelongsToTenant
+     * global scope. Same workaround used in ReservationDetail.
+     */
+    public $reservation;
+    public $submission = null;
 
     public function mount(int $reservation): void
     {

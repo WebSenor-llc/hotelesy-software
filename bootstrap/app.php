@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'rbac'           => \App\Http\Middleware\EnforceRoutePermission::class,
             'role'           => \Spatie\Permission\Middleware\RoleMiddleware::class,
             'permission'     => \Spatie\Permission\Middleware\PermissionMiddleware::class,
+            'desktop.license'=> \App\Http\Middleware\EnforceDesktopLicense::class,
         ]);
         $middleware->statefulApi();
         $middleware->validateCsrfTokens(except: [

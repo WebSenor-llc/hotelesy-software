@@ -45,8 +45,44 @@ class RoomBoard extends Component
 
         $ctx = app(TenantContext::class);
         $room = Room::where('property_id', $ctx->propertyId())->findOrFail($roomId);
+
+        // CRITICAL: never let housekeeping change a room's front-office state.
+        // If a guest is checked in (fo_status='occupied'), housekeeping is doing
+        // mid-stay cleaning — the room is still booked. Translate any "vacant"
+        // intent to its occupied equivalent so cleaning gets logged but the
+        // room never accidentally appears as bookable while still occupied.
+        $isOccupied = $room->fo_status === 'occupied';
+
+        if ($isOccupied) {
+            $translated = match ($status) {
+                'vacant_clean', 'inspected' => 'occupied_clean',
+                'vacant_dirty'              => 'occupied_dirty',
+                default                     => $status,
+            };
+
+            if (in_array($translated, ['out_of_order', 'out_of_service', 'blocked'], true)) {
+                // Don't let housekeeping take an occupied room out-of-order — the
+                // guest is still in it. Front office must check them out first.
+                session()->flash('error',
+                    "Cannot mark room {$room->number} as " . str_replace('_', ' ', $status) .
+                    " — a guest is currently checked in. Check them out first or coordinate with the front office."
+                );
+                return;
+            }
+            $status = $translated;
+        } else {
+            // Vacant rooms can never become occupied via the housekeeping board.
+            // The cashier checks guests in, not housekeeping.
+            if (in_array($status, ['occupied_clean', 'occupied_dirty'], true)) {
+                session()->flash('error',
+                    "Cannot mark room {$room->number} as occupied — no guest is checked in. Use the front-office check-in flow instead."
+                );
+                return;
+            }
+        }
+
         $room->update(['status' => $status]);
-        session()->flash('success', "Room {$room->number} marked as " . str_replace('_',' ', $status) . '.');
+        session()->flash('success', "Room {$room->number} marked as " . str_replace('_', ' ', $status) . '.');
     }
 
     /** Quick action: Start (assign self) and immediately complete a cleaning task as "Assign clean" workflow. */

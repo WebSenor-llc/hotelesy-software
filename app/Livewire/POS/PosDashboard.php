@@ -183,11 +183,21 @@ class PosDashboard extends Component
 
         $reservation = $this->reservationId ? Reservation::find($this->reservationId) : null;
 
+        // Resolve the actual prepaid amount: 0 (or absent) means "pay the full bill
+        // now". A positive value < total means partial — collect the rest at billing.
+        $prepaidPaid = $this->paymentTiming === 'prepaid'
+            ? ((float) $this->prepaidAmount > 0 ? round((float) $this->prepaidAmount, 2) : $total)
+            : 0.0;
+        $isFullyPrepaid = $this->paymentTiming === 'prepaid' && $prepaidPaid + 0.01 >= $total;
+
         $createdOrderId = null;
-        DB::transaction(function () use ($ctx, $outlet, $orderItems, $subtotal, $tax, $sc, $total, $now, $reservation, &$createdOrderId) {
+        DB::transaction(function () use ($ctx, $outlet, $orderItems, $subtotal, $tax, $sc, $total, $now, $reservation, $prepaidPaid, $isFullyPrepaid, &$createdOrderId) {
             $orderNote = "Payment timing: " . $this->paymentTiming;
             if ($this->paymentTiming === 'prepaid') {
-                $orderNote .= " (paid {$this->prepaidMode}" . ($this->prepaidReference ? " ref {$this->prepaidReference}" : '') . ")";
+                $orderNote .= " (paid ₹" . number_format($prepaidPaid, 2) . " {$this->prepaidMode}"
+                    . ($this->prepaidReference ? " ref {$this->prepaidReference}" : '')
+                    . ($isFullyPrepaid ? '' : ' — balance ₹' . number_format($total - $prepaidPaid, 2) . ' due at bill')
+                    . ")";
             }
             $order = Order::create([
                 'tenant_id' => $ctx->tenantId(), 'property_id' => $ctx->propertyId(),
@@ -208,7 +218,10 @@ class PosDashboard extends Component
                 'payment_timing' => $this->paymentTiming,
                 'payment_mode' => $this->paymentTiming === 'prepaid' ? $this->prepaidMode : null,
                 'payment_reference' => $this->paymentTiming === 'prepaid' ? ($this->prepaidReference ?: null) : null,
-                'paid_at' => $this->paymentTiming === 'prepaid' ? $now : null,
+                // Only mark fully paid when the prepaid amount actually covers the
+                // total. A partial prepayment leaves paid_at null so the cashier
+                // can collect the remaining balance via openSettle later.
+                'paid_at' => $isFullyPrepaid ? $now : null,
                 'notes' => $orderNote,
                 'created_by' => auth()->id(),
             ]);
@@ -244,7 +257,7 @@ class PosDashboard extends Component
         });
 
         // If prepaid, record the Payment immediately so today's revenue is correct.
-        if ($this->paymentTiming === 'prepaid' && $createdOrderId) {
+        if ($this->paymentTiming === 'prepaid' && $createdOrderId && $prepaidPaid > 0) {
             try {
                 Payment::create([
                     'tenant_id'             => $ctx->tenantId(),
@@ -255,7 +268,7 @@ class PosDashboard extends Component
                     'payment_date'          => $now->toDateString(),
                     'business_date'         => $now->toDateString(),
                     'mode'                  => $this->prepaidMode,
-                    'amount'                => $this->prepaidAmount > 0 ? $this->prepaidAmount : $total,
+                    'amount'                => $prepaidPaid,
                     'currency'              => 'INR',
                     'transaction_reference' => $this->prepaidReference ?: null,
                     'status'                => 'completed',
@@ -273,7 +286,9 @@ class PosDashboard extends Component
         $this->showNewOrder = false;
         $this->orderLines = [];
         $msg = match ($this->paymentTiming) {
-            'prepaid'     => 'Order sent to kitchen · prepaid ' . strtoupper($this->prepaidMode) . ' ₹' . number_format($total, 2),
+            'prepaid'     => $isFullyPrepaid
+                ? 'Order sent to kitchen · prepaid ' . strtoupper($this->prepaidMode) . ' ₹' . number_format($prepaidPaid, 2)
+                : 'Order sent to kitchen · partial prepayment ₹' . number_format($prepaidPaid, 2) . ' ' . strtoupper($this->prepaidMode) . ' · ₹' . number_format($total - $prepaidPaid, 2) . ' still due',
             'room_charge' => 'Order sent to kitchen · will be charged to room folio',
             default       => 'Order sent to kitchen · payment will be collected at billing',
         };
@@ -323,10 +338,31 @@ class PosDashboard extends Component
     {
         $o = Order::findOrFail($id);
         $this->settleOrderId = $o->id;
-        $this->payAmount = (float) $o->total_amount;
+
+        // CRITICAL: subtract any payments already recorded against this order
+        // (e.g. partial prepayment at order time). Otherwise the cashier ends
+        // up collecting the full bill twice when the guest already paid part
+        // upfront. Sum across all completed Payment rows linked to this order.
+        $alreadyPaid = (float) Payment::where('payable_type', Order::class)
+            ->where('payable_id', $o->id)
+            ->where('status', 'completed')
+            ->sum('amount');
+
+        $this->payAmount = max(0, round((float) $o->total_amount - $alreadyPaid, 2));
         $this->payMode = $o->order_type === 'room_service' && $o->reservation_id ? 'company_credit' : 'cash';
         $this->payReference = '';
         $this->chargeToRoom = ($o->order_type === 'room_service' && $o->reservation_id);
+
+        // Surface the prepaid context so the cashier sees what's already been
+        // collected before they enter cash. Done as a flash so it appears in the
+        // settle dialog area without changing the dialog's structure.
+        if ($alreadyPaid > 0.01) {
+            $modeStr = $o->payment_mode ? strtoupper($o->payment_mode) : 'PREPAID';
+            session()->flash('info',
+                "₹" . number_format($alreadyPaid, 2) . " already collected via {$modeStr}. " .
+                "Balance ₹" . number_format($this->payAmount, 2) . " due now."
+            );
+        }
     }
     public function closeSettle(): void { $this->settleOrderId = null; }
 

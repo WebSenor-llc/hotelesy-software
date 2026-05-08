@@ -21,7 +21,78 @@
                     <input type="email" wire:model="guest_email" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
                     @error('guest_email')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror
                 </div>
+
+                {{-- ID proof — captured at booking, optional. Document files
+                     are uploaded at check-in. --}}
+                <div>
+                    <label class="block text-xs font-medium text-slate-700 mb-1">ID type</label>
+                    <select wire:model="id_type" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                        <option value="aadhaar">Aadhaar</option>
+                        <option value="passport">Passport</option>
+                        <option value="voter">Voter ID</option>
+                        <option value="driving_license">Driving licence</option>
+                        <option value="pan">PAN</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-700 mb-1">ID number</label>
+                    <input type="text" wire:model="id_number" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="As per the document">
+                    @error('id_number')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror
+                </div>
             </div>
+        </div>
+
+        {{-- FOREIGN-NATIONAL / FRRO FORM-C COMPLIANCE --}}
+        <div class="border border-amber-200 rounded-lg p-4 bg-amber-50/40">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-semibold text-amber-900 uppercase tracking-wider">🇮🇳 Foreign national / Form C</h2>
+                <label class="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" wire:model.live="is_foreign_national" class="rounded">
+                    <span class="font-medium text-amber-900">Guest is a foreign national</span>
+                </label>
+            </div>
+            <p class="text-[11px] text-amber-800 mb-3">Form C must be filed with FRRO within 24 hours of arrival under section 14 of the Foreigners Act, 1946. Capture this at booking so check-in is friction-free.</p>
+
+            @if($is_foreign_national)
+                <div class="grid md:grid-cols-3 gap-3 text-sm">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-700 mb-1">Nationality (ISO 2) *</label>
+                        <input type="text" wire:model="nationality" maxlength="2" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm uppercase font-mono" placeholder="US, GB, DE, …">
+                        @error('nationality')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-700 mb-1">Passport no. *</label>
+                        <input type="text" wire:model="passport_number" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                        @error('passport_number')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-700 mb-1">Passport expiry</label>
+                        <input type="date" wire:model="passport_expiry" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-700 mb-1">Visa no. *</label>
+                        <input type="text" wire:model="visa_number" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                        @error('visa_number')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-700 mb-1">Visa expiry</label>
+                        <input type="date" wire:model="visa_expiry" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-700 mb-1">Date of arrival in India</label>
+                        <input type="date" wire:model="arrival_date_in_india" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-700 mb-1">Arrived from (country)</label>
+                        <input type="text" wire:model="arrival_from_country" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="e.g. United Kingdom">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-slate-700 mb-1">Next destination</label>
+                        <input type="text" wire:model="next_destination" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="City / country">
+                    </div>
+                </div>
+            @endif
         </div>
 
         <div>

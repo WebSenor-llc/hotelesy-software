@@ -129,6 +129,8 @@ class Checkout extends Component
                     'auto_renew'           => false,
                     'next_billing_at'      => now()->addDays($duration),
                     'last_validated_at'    => now(),
+                    'issued_at'            => now(),
+                    'issued_by'            => null,
                 ]);
 
                 $invoiceNo = SubscriptionTransaction::generateInvoiceNumber();

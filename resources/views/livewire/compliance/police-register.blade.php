@@ -21,6 +21,30 @@
         </div>
         <p class="text-sm text-slate-600 mb-4 no-print">Daily register of foreign-national guests required by local police under hospitality regulations.</p>
 
+        {{-- Explanatory banner: this register is derived from reservations, not directly editable --}}
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 no-print">
+            <div class="flex items-start gap-3">
+                <span class="text-xl">ℹ</span>
+                <div class="flex-1">
+                    <div class="font-semibold text-blue-900 mb-1">This register is auto-generated, not directly edited</div>
+                    <div class="text-sm text-blue-800 space-y-1">
+                        <p>Police registers are <strong>legal audit records</strong> — entries can't be added or modified by hand here. Each row is built live from your reservation + guest data so the register always reflects what's in the system.</p>
+                        <p class="pt-1"><strong>To add a new entry:</strong> create a booking with the <em>Foreign national</em> toggle enabled (capture passport + visa). The guest will appear here automatically once checked in.</p>
+                        <p><strong>To correct an entry:</strong> edit the underlying reservation or guest profile. Changes flow through.</p>
+                        <p><strong>To submit to authorities:</strong> use the date filter to pick the day, then <em>Print</em> or <em>Export CSV</em>. The Form C reference column links each row to its FRRO submission.</p>
+                    </div>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <a href="{{ route('reservations.new') }}" class="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded">
+                            ✚ New booking (foreign national)
+                        </a>
+                        <a href="{{ route('compliance.form-c') }}" class="inline-flex items-center gap-1 bg-white border border-blue-300 hover:bg-blue-50 text-blue-800 text-xs font-semibold px-3 py-1.5 rounded">
+                            🇮🇳 Form C / FRRO submissions
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="bg-white rounded-xl border p-4 mb-4 flex flex-wrap gap-3 items-end no-print">
             <div>
                 <label class="block text-xs font-medium text-slate-700 mb-1">From date</label>

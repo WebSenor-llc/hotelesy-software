@@ -32,6 +32,14 @@ class EnforceLicense
         $user = $request->user();
         $routeName = $request->route()?->getName() ?? '';
 
+        // 0. Desktop build — license is enforced by EnforceDesktopLicense
+        // (encrypted local file + hardware fingerprint) instead of the
+        // cloud licenses table. Skip the cloud check entirely so the
+        // single-tenant desktop install isn't blocked by "no license found".
+        if (config('desktop.mode') === 'desktop') {
+            return $next($request);
+        }
+
         // 1. Super admins always bypass
         if ($user?->is_super_admin) {
             return $next($request);

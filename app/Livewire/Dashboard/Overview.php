@@ -8,6 +8,7 @@ use App\Models\Housekeeping\HousekeepingTask;
 use App\Models\Payment;
 use App\Models\Pos\Order as PosOrder;
 use App\Models\Reservation;
+use App\Models\ReservationRoom;
 use App\Models\Room;
 use App\Services\TenantContext;
 use Illuminate\Support\Carbon;
@@ -33,6 +34,35 @@ class Overview extends Component
         $oooRooms       = $rooms->whereIn('status', ['out_of_order','out_of_service','blocked'])->count();
         $dirtyRooms     = $rooms->whereIn('status', ['vacant_dirty','occupied_dirty'])->count();
         $occupancyPct   = $totalRooms > 0 ? round($occupiedRooms / $totalRooms * 100, 1) : 0;
+        $roomStayDetails = ReservationRoom::query()
+            ->where('property_id', $propertyId)
+            ->whereNotNull('room_id')
+            ->whereDate('arrival_date', '<=', $today)
+            ->whereDate('departure_date', '>=', $today)
+            ->whereIn('status', ['booked', 'allocated', 'checked_in'])
+            ->with('reservation:id,reservation_number,guest_name,status,arrival_date,departure_date,nights')
+            ->orderBy('departure_date')
+            ->get()
+            ->groupBy('room_id')
+            ->map(function ($reservationRooms) {
+                return $reservationRooms->map(function ($reservationRoom) {
+                    $reservation = $reservationRoom->reservation;
+                    $guestName = $reservationRoom->guest_name
+                        ?: $reservation?->guest_name
+                        ?: 'Guest';
+                    $arrivalDate   = $reservationRoom->arrival_date   ?: $reservation?->arrival_date;
+                    $departureDate = $reservationRoom->departure_date ?: $reservation?->departure_date;
+
+                    return [
+                        'guest_name'         => $guestName,
+                        'reservation_number' => $reservation?->reservation_number,
+                        'arrival_date'       => $arrivalDate?->format('d M Y'),
+                        'departure_date'     => $departureDate?->format('d M Y'),
+                        'nights'             => $reservationRoom->nights ?? $reservation?->nights,
+                        'status'             => $reservationRoom->status,
+                    ];
+                })->values();
+            });
 
         // Today reservation snapshot
         $reservations = Reservation::where('property_id', $propertyId)->get();
@@ -229,6 +259,7 @@ class Overview extends Component
                 'revenue_delta'    => $revenueDelta,
             ],
             'rooms'              => $rooms,
+            'roomStayDetails'    => $roomStayDetails,
             'last7'              => $last7,
             'arrivalsList'       => $arrivalsList,
             'departuresList'     => $departuresList,

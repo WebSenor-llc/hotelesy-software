@@ -34,6 +34,30 @@
                     <option value="occupied">Occupied</option><option value="due_out">Due out</option><option value="on_request">On request</option>
                 </select>
             </div>
+            {{-- Image upload + notes --}}
+            <div class="md:col-span-3 grid md:grid-cols-2 gap-4 pt-3 border-t">
+                <div>
+                    <label class="block text-xs font-medium mb-1">Room image</label>
+                    @if($existingImagePath && !$imageUpload)
+                        <div class="flex items-start gap-3 mb-2">
+                            <img src="{{ asset('storage/'.$existingImagePath) }}" alt="Room image"
+                                 class="w-32 h-24 object-cover rounded-lg border border-slate-200">
+                            <button type="button" wire:click="removeImage" class="text-xs text-rose-600 hover:underline">Remove</button>
+                        </div>
+                    @elseif($imageUpload)
+                        <div class="mb-2"><img src="{{ $imageUpload->temporaryUrl() }}" class="w-32 h-24 object-cover rounded-lg border border-slate-200"></div>
+                    @endif
+                    <input type="file" wire:model="imageUpload" accept="image/*" class="w-full px-3 py-2 border rounded-lg text-xs">
+                    <p class="text-[10px] text-slate-500 mt-1">JPG / PNG / WebP up to 4 MB. Used on the room board, booking engine, and reports.</p>
+                    @error('imageUpload')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror
+                    <div wire:loading wire:target="imageUpload" class="text-xs text-amber-600 mt-1">Uploading…</div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1">Internal notes</label>
+                    <textarea wire:model="notes" rows="3" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Quirks, do-not-sell flags, repair history…"></textarea>
+                </div>
+            </div>
+
             <div class="md:col-span-3 flex flex-wrap gap-4 pt-3 border-t">
                 <label class="flex items-center gap-2 text-sm"><input type="checkbox" wire:model="is_smoking" class="rounded">Smoking</label>
                 <label class="flex items-center gap-2 text-sm"><input type="checkbox" wire:model="is_accessible" class="rounded">Accessible</label>
@@ -75,11 +99,29 @@
 
     <div class="bg-white rounded-xl border overflow-hidden mb-6">
         <table class="w-full text-sm">
-            <thead class="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500 border-b"><tr><th class="px-5 py-2">Room #</th><th class="px-4 py-2">Type</th><th class="px-4 py-2">Floor / Wing</th><th class="px-4 py-2">View</th><th class="px-4 py-2">Status</th><th class="px-4 py-2">Flags</th><th></th></tr></thead>
+            <thead class="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500 border-b">
+                <tr>
+                    <th class="px-3 py-2">Photo</th>
+                    <th class="px-3 py-2">Room #</th>
+                    <th class="px-4 py-2">Type</th>
+                    <th class="px-4 py-2">Floor / Wing</th>
+                    <th class="px-4 py-2">View</th>
+                    <th class="px-4 py-2">Status</th>
+                    <th class="px-4 py-2">Flags</th>
+                    <th></th>
+                </tr>
+            </thead>
             <tbody class="divide-y divide-slate-100">
                 @forelse($rooms as $r)
                 <tr>
-                    <td class="px-5 py-2 font-bold">{{ $r->number }}</td>
+                    <td class="px-3 py-2">
+                        @if($r->image_path)
+                            <img src="{{ asset('storage/'.$r->image_path) }}" class="w-14 h-10 object-cover rounded border border-slate-200" alt="Room {{ $r->number }}">
+                        @else
+                            <div class="w-14 h-10 rounded border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400 bg-slate-50">No img</div>
+                        @endif
+                    </td>
+                    <td class="px-3 py-2 font-bold">{{ $r->number }}</td>
                     <td class="px-4 py-2">{{ $r->roomType?->name }}</td>
                     <td class="px-4 py-2 text-xs">F{{ $r->floor }}{{ $r->wing ? ' · '.$r->wing : '' }}</td>
                     <td class="px-4 py-2 text-xs">{{ $r->view ?: '—' }}</td>
@@ -95,7 +137,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="7" class="px-5 py-12 text-center text-sm text-slate-500">No rooms.</td></tr>
+                <tr><td colspan="8" class="px-5 py-12 text-center text-sm text-slate-500">No rooms.</td></tr>
                 @endforelse
             </tbody>
         </table>

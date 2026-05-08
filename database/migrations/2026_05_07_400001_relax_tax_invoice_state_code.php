@@ -13,6 +13,11 @@ return new class extends Migration {
     {
         if (! Schema::hasTable('tax_invoices')) return;
 
+        // SQLite (desktop build) doesn't enforce NOT NULL changes the same way
+        // — we intentionally make these columns nullable on table creation
+        // for SQLite, so this MySQL-only DDL can be safely skipped.
+        if (DB::connection()->getDriverName() !== 'mysql') return;
+
         DB::statement("ALTER TABLE tax_invoices MODIFY supplier_state_code VARCHAR(4) NULL");
         DB::statement("ALTER TABLE tax_invoices MODIFY place_of_supply_code VARCHAR(4) NULL");
         DB::statement("ALTER TABLE tax_invoices MODIFY place_of_supply VARCHAR(80) NULL");

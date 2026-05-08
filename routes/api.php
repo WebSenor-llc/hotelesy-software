@@ -25,6 +25,22 @@ use Illuminate\Support\Facades\Route;
 // Public
 Route::post('auth/login', [AuthController::class, 'login']);
 
+/* ============ Desktop license server (cloud-side) ============
+ |
+ |  Endpoints consumed by Hotelesy Desktop installations to activate,
+ |  re-validate, and release seats. Public on purpose — desktop apps don't
+ |  hold a session token.
+ |
+ |  - POST /api/desktop/activate    → first activation (binds machine fingerprint)
+ |  - POST /api/desktop/validate    → periodic phone-home revalidation
+ |  - POST /api/desktop/deactivate  → release the seat for re-activation elsewhere
+ */
+Route::prefix('desktop')->group(function () {
+    Route::post('activate',   [\App\Http\Controllers\Api\Desktop\LicenseServerController::class, 'activate']);
+    Route::post('validate',   [\App\Http\Controllers\Api\Desktop\LicenseServerController::class, 'validateLicense']);
+    Route::post('deactivate', [\App\Http\Controllers\Api\Desktop\LicenseServerController::class, 'deactivate']);
+});
+
 Route::middleware(['auth:sanctum', 'tenant.resolve'])->group(function () {
     /* Auth */
     Route::get('auth/me', [AuthController::class, 'me']);

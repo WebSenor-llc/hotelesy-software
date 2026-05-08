@@ -23,7 +23,7 @@ class Property extends Model
         'check_in_time', 'check_out_time', 'night_audit_time',
         'current_business_date', 'night_audit_locked',
         'currency', 'timezone', 'total_rooms', 'floors',
-        'status', 'settings',
+        'status', 'settings', 'site_content',
     ];
 
     protected $casts = [
@@ -38,6 +38,7 @@ class Property extends Model
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
         'settings' => 'array',
+        'site_content' => 'array',
     ];
 
     public function rooms(): HasMany

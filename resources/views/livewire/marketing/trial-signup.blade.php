@@ -89,6 +89,35 @@
             Pay ₹1 via UPI →
         </button>
         <p class="text-xs text-ink-500 mt-4">Secured by Razorpay · Your bank's UPI app will open</p>
+
+        {{-- ============================================================
+             TEST MODE — Razorpay isn't configured (or you're on a dev
+             environment). These buttons let you simulate a successful or
+             failed payment so you can exercise the full flow without
+             real money or UPI app.
+             ============================================================ --}}
+        @if(app(\App\Services\RazorpayService::class)->isStubMode())
+            <div class="mt-8 pt-6 border-t border-dashed border-amber-300">
+                <div class="inline-flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 mb-3">
+                    <span>⚠</span> Test mode · Razorpay keys not configured
+                </div>
+                <div class="text-xs text-ink-600 mb-4">Simulate the payment outcome without a real UPI app.</div>
+                <div class="flex flex-col sm:flex-row gap-3 justify-center">
+                    <button type="button" wire:click="testPaymentSuccess"
+                            class="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-6 py-3 rounded-full transition"
+                            wire:loading.attr="disabled" wire:target="testPaymentSuccess">
+                        <span wire:loading.remove wire:target="testPaymentSuccess">✓ Simulate success → dashboard</span>
+                        <span wire:loading wire:target="testPaymentSuccess">Activating…</span>
+                    </button>
+                    <button type="button" wire:click="testPaymentFailure"
+                            class="inline-flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold px-6 py-3 rounded-full transition"
+                            wire:loading.attr="disabled" wire:target="testPaymentFailure">
+                        <span wire:loading.remove wire:target="testPaymentFailure">✗ Simulate failure</span>
+                        <span wire:loading wire:target="testPaymentFailure">Marking failed…</span>
+                    </button>
+                </div>
+            </div>
+        @endif
     </div>
 
     @if(session('warning'))<div class="mt-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm">{{ session('warning') }}</div>@endif
@@ -96,6 +125,12 @@
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script>
         document.getElementById('open-razorpay')?.addEventListener('click', function () {
+            // In stub mode, the "Pay ₹1" button simulates a real Razorpay flow
+            // by piggy-backing on the test-success handler — no popup opens.
+            if (@json(app(\App\Services\RazorpayService::class)->isStubMode())) {
+                @this.testPaymentSuccess();
+                return;
+            }
             const options = {
                 key: @json(app(\App\Services\RazorpayService::class)->publicKey()),
                 amount: @json($razorpayOrder['amount']),
@@ -105,35 +140,131 @@
                 description: '30-day trial · ₹1 mandate authorization',
                 method: { upi: true, card: true, netbanking: false, wallet: false },
                 handler: function (response) {
-                    Livewire.dispatch('confirmPayment', {
-                        razorpayPaymentId: response.razorpay_payment_id,
-                        razorpayOrderId: response.razorpay_order_id,
-                        razorpaySignature: response.razorpay_signature
-                    });
                     @this.confirmPayment(response.razorpay_payment_id, response.razorpay_order_id, response.razorpay_signature);
+                },
+                modal: {
+                    ondismiss: function () {
+                        @this.testPaymentFailure();   // user closed Razorpay → mark failed
+                    }
                 },
                 theme: { color: '#22201d' }
             };
-            // Stub-mode shortcut: when no real key, simulate success.
-            if (options.key === 'rzp_test_stub' || @json(app(\App\Services\RazorpayService::class)->isStubMode())) {
-                @this.confirmPayment('pay_stub_' + Math.random().toString(36).slice(2,14), options.order_id, 'sig_stub');
-                return;
-            }
             const rzp = new Razorpay(options);
+            rzp.on('payment.failed', function (response) {
+                @this.testPaymentFailure();
+            });
             rzp.open();
         });
     </script>
     @endif
 
-    {{-- STEP 3: success --}}
+    {{-- =====================================================
+         STEP 3: SUCCESS — proper "thank you" page with details
+         The user is auto-logged-in here. They click "Continue to
+         setup" to land on /dashboard already authenticated.
+         ===================================================== --}}
     @if($step === 'success')
-    <div class="bg-emerald-50 border-2 border-emerald-200 rounded-2xl p-10 text-center">
-        <div class="w-20 h-20 rounded-full bg-emerald-500 text-white flex items-center justify-center text-4xl mx-auto">✓</div>
-        <h2 class="font-display font-black text-4xl text-ink-900 mt-6">Welcome to Hotelesy!</h2>
-        <p class="text-ink-700 mt-3 max-w-md mx-auto">Your 30-day trial is active. We've sent your login details to <strong>{{ $email }}</strong>.</p>
-        <div class="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
-            <a href="{{ route('login') }}" class="inline-flex justify-center bg-ink-900 hover:bg-ink-800 text-ink-50 font-bold px-7 py-3 rounded-full transition">Sign in to dashboard →</a>
-            <a href="{{ route('home') }}" class="inline-flex justify-center text-ink-700 hover:text-ink-900 font-semibold px-7 py-3">Back home</a>
+    @php
+        $isDevHost = ! str_contains((string) request()->getHost(), '.');
+        $port = request()->getPort();
+        $portSuffix = (in_array($port, [80, 443]) || empty($port)) ? '' : ':' . $port;
+        $publicWebsiteUrl = $isDevHost
+            ? url('/h/' . $successTenantSlug)
+            : request()->getScheme() . '://' . $successTenantSlug . '.' . request()->getHost() . $portSuffix;
+        $firstName = $successOwnerName ? explode(' ', $successOwnerName)[0] : 'there';
+        $monthlyPrice = number_format(config('razorpay.default_monthly_paise', 99900) / 100, 0);
+    @endphp
+
+    <div class="space-y-6">
+        {{-- Big celebration banner --}}
+        <div class="bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 text-white rounded-3xl p-10 text-center relative overflow-hidden">
+            <div class="absolute inset-0 opacity-10" style="background-image:radial-gradient(circle at 30% 30%, white 0, transparent 40%), radial-gradient(circle at 70% 70%, white 0, transparent 40%);"></div>
+            <div class="relative">
+                <div class="w-24 h-24 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-6xl mx-auto mb-4">🎉</div>
+                <h1 class="font-display font-black text-5xl leading-tight">Welcome aboard, {{ $firstName }}!</h1>
+                <p class="text-white/90 text-lg mt-3">Your 30-day Hotelesy trial is live. Let's get <strong>{{ $successHotelName }}</strong> set up.</p>
+            </div>
+        </div>
+
+        {{-- Subscription summary --}}
+        <div class="bg-white rounded-2xl border-2 border-emerald-100 p-6">
+            <div class="flex items-baseline justify-between mb-4">
+                <h3 class="font-bold text-ink-900 text-lg">Your subscription</h3>
+                <span class="text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Active · Trial</span>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-4 text-sm">
+                <div class="flex justify-between border-b border-slate-100 py-1.5"><span class="text-slate-500">Plan</span><span class="font-semibold">Free 30-day trial</span></div>
+                <div class="flex justify-between border-b border-slate-100 py-1.5"><span class="text-slate-500">Charged today</span><span class="font-semibold font-mono">₹1.00 (UPI mandate)</span></div>
+                <div class="flex justify-between border-b border-slate-100 py-1.5"><span class="text-slate-500">Trial ends on</span><span class="font-semibold">{{ $successTrialEnds }}</span></div>
+                <div class="flex justify-between border-b border-slate-100 py-1.5"><span class="text-slate-500">First auto-charge</span><span class="font-semibold">₹{{ $monthlyPrice }}/mo on {{ $successTrialEnds }}</span></div>
+            </div>
+            <p class="text-xs text-slate-500 mt-4">Cancel anytime from your dashboard before {{ $successTrialEnds }} to avoid the renewal charge.</p>
+        </div>
+
+        {{-- Account details --}}
+        <div class="bg-white rounded-2xl border border-slate-200 p-6">
+            <h3 class="font-bold text-ink-900 text-lg mb-4">Your account</h3>
+            <div class="grid sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div><span class="text-xs uppercase tracking-widest text-slate-500 font-semibold">Hotel name</span><div class="font-semibold mt-0.5">{{ $successHotelName }}@if($successCity), {{ $successCity }}@endif</div></div>
+                <div><span class="text-xs uppercase tracking-widest text-slate-500 font-semibold">Owner</span><div class="font-semibold mt-0.5">{{ $successOwnerName }}</div></div>
+                <div><span class="text-xs uppercase tracking-widest text-slate-500 font-semibold">Email</span><div class="font-semibold mt-0.5 font-mono text-[13px]">{{ $successOwnerEmail }}</div></div>
+                <div><span class="text-xs uppercase tracking-widest text-slate-500 font-semibold">Tenant ID</span><div class="font-semibold mt-0.5 font-mono text-[13px]">{{ $successTenantSlug }}</div></div>
+            </div>
+
+            {{-- Public website URL --}}
+            <div class="mt-5 pt-5 border-t border-slate-100">
+                <span class="text-xs uppercase tracking-widest text-slate-500 font-semibold block mb-1">Your public hotel website</span>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <a href="{{ $publicWebsiteUrl }}" target="_blank" class="font-mono text-sm text-brand-700 hover:underline break-all">{{ $publicWebsiteUrl }}</a>
+                    <a href="{{ $publicWebsiteUrl }}" target="_blank" class="text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded bg-brand-100 text-brand-700 hover:bg-brand-200">Visit ↗</a>
+                </div>
+                <p class="text-[11px] text-slate-500 mt-1">This is the booking website your guests will visit. We've already published a starter design — you can customise it from Setup.</p>
+            </div>
+
+            {{-- License key one-time display --}}
+            @if($successLicenseKey)
+                <div class="mt-5 pt-5 border-t border-slate-100">
+                    <span class="text-xs uppercase tracking-widest text-amber-700 font-semibold block mb-1">⚠ License key — save this somewhere safe</span>
+                    <div class="font-mono text-base bg-amber-50 border border-amber-200 px-3 py-2 rounded select-all">{{ $successLicenseKey }}</div>
+                    <p class="text-[11px] text-slate-500 mt-1">Shown once. Keep this for support and audit purposes — it's stored securely on your account.</p>
+                </div>
+            @endif
+        </div>
+
+        {{-- Next steps checklist --}}
+        <div class="bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 rounded-2xl border border-amber-200 p-6">
+            <h3 class="font-bold text-ink-900 text-lg mb-1">What to do next</h3>
+            <p class="text-sm text-slate-600 mb-4">A typical hotel goes live in under 2 hours. Here's the fastest path:</p>
+            <ol class="space-y-3">
+                @php
+                    $steps = [
+                        ['Set up your property',     'Property name, GSTIN, check-in/out times, contact details', 'setup.property'],
+                        ['Add room types',           'Deluxe, Suite, etc. with photos, capacity & base rate',     'setup.room-types'],
+                        ['Add individual rooms',     'Room numbers, floors, smoking/accessible flags',            'setup.rooms'],
+                        ['Configure rate plans',     'BAR, package rates, GST inclusive/exclusive',               'setup.rate-plans'],
+                        ['Connect channels',         'Booking.com, MakeMyTrip, Agoda, Goibibo',                   'channel.index'],
+                        ['Take your first booking',  'Walk-in, online or via phone',                              'reservations.new'],
+                    ];
+                @endphp
+                @foreach($steps as $i => [$title, $desc, $route])
+                    <li class="flex items-start gap-3">
+                        <span class="flex-shrink-0 w-7 h-7 rounded-full bg-ink-900 text-white text-xs font-bold flex items-center justify-center">{{ $i + 1 }}</span>
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm text-ink-900">{{ $title }}</div>
+                            <div class="text-xs text-slate-600">{{ $desc }}</div>
+                        </div>
+                    </li>
+                @endforeach
+            </ol>
+        </div>
+
+        {{-- Big CTA --}}
+        <div class="text-center pt-2">
+            <a href="{{ route('dashboard') }}" class="inline-flex items-center gap-2 bg-ink-900 hover:bg-ink-800 text-ink-50 font-bold px-10 py-5 rounded-full transition shadow-lg">
+                Continue to setup → my dashboard
+            </a>
+            <p class="text-xs text-slate-500 mt-3">You're already signed in. We'll take you straight to your dashboard.</p>
+            <a href="{{ route('home') }}" class="text-xs text-slate-500 hover:text-slate-800 mt-3 inline-block">← Back to Hotelesy home</a>
         </div>
     </div>
     @endif

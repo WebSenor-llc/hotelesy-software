@@ -33,15 +33,27 @@ class PosTables extends Component
 
     public function startEdit(int $id): void
     {
-        $t = PosTable::findOrFail($id);
+        $t = app(TenantContext::class)->bypass(fn () => PosTable::findOrFail($id));
         $this->editId = $id;
-        foreach (['outlet_id','name','section','capacity','status','is_active'] as $f) {
-            $this->$f = $t->$f;
-        }
+
+        // Coerce DB nulls to safe defaults so typed properties don't TypeError
+        $this->outlet_id = $t->outlet_id;
+        $this->name      = (string) ($t->name ?? '');
+        $this->section   = $t->section;                // ?string is fine
+        $this->capacity  = (int) ($t->capacity ?? 2);
+        $this->status    = (string) ($t->status ?? 'available');
+        $this->is_active = (bool) ($t->is_active ?? true);
+
+        $this->resetErrorBag();
         $this->showForm = true;
     }
 
-    public function cancelForm(): void { $this->showForm = false; $this->reset(['editId']); }
+    public function cancelForm(): void
+    {
+        $this->showForm = false;
+        $this->editId = null;
+        $this->resetErrorBag();
+    }
 
     public function save(): void
     {
@@ -53,13 +65,23 @@ class PosTables extends Component
             'status'    => 'required|in:available,occupied,reserved,cleaning',
             'is_active' => 'boolean',
         ]);
-        $data['property_id'] = app(TenantContext::class)->propertyId();
+        $ctx = app(TenantContext::class);
+        $data['property_id'] = $ctx->propertyId();
+        $data['tenant_id']   = $ctx->tenantId();
 
-        if ($this->editId) PosTable::findOrFail($this->editId)->update($data);
-        else PosTable::create($data);
+        try {
+            if ($this->editId) {
+                $ctx->bypass(fn () => PosTable::findOrFail($this->editId)->update($data));
+            } else {
+                PosTable::create($data);
+            }
+        } catch (\Throwable $e) {
+            session()->flash('error', 'Failed to save table: ' . $e->getMessage());
+            return;
+        }
         session()->flash('success', "Table '{$data['name']}' saved.");
         $this->showForm = false;
-        $this->reset(['editId']);
+        $this->editId = null;
     }
 
     public function delete(int $id): void

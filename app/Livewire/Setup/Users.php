@@ -50,9 +50,21 @@ class Users extends Component
 
     public function save(): void
     {
+        $ctx = app(TenantContext::class);
+        $tenantId = $ctx->tenantId();
+
+        // Tenant-scoped email uniqueness — the DB has a (tenant_id, email)
+        // composite unique key, so we need to scope the validator to that
+        // tenant AND ignore the current user when editing. This catches
+        // duplicates BEFORE hitting the DB so the user gets a friendly
+        // inline message instead of a 500.
+        $emailUnique = \Illuminate\Validation\Rule::unique('users', 'email')
+            ->where(fn ($q) => $q->where('tenant_id', $tenantId))
+            ->ignore($this->editId);
+
         $rules = [
             'name' => 'required|string|max:255',
-            'email' => 'required|email',
+            'email' => ['required', 'email', $emailUnique],
             'phone' => 'nullable|string|max:30',
             'employee_code' => 'nullable|string|max:30',
             'department' => 'nullable|string|max:100',
@@ -66,27 +78,42 @@ class Users extends Component
         if (!$this->editId) $rules['password'] = 'required|min:6';
         elseif ($this->password) $rules['password'] = 'min:6';
 
-        $data = $this->validate($rules);
-        $ctx = app(TenantContext::class);
+        $data = $this->validate($rules, [
+            'email.unique' => 'A user with this email already exists in this tenant. Use a different email or edit the existing user.',
+        ]);
+
         $payload = collect($data)->except(['role'])->toArray();
-        $payload['tenant_id'] = $ctx->tenantId();
+        $payload['tenant_id'] = $tenantId;
+        // cash_drawer_limit column is NOT NULL in the DB. When the user isn't a
+        // cash handler the form leaves it null — coerce to 0 so insert succeeds.
+        $payload['cash_drawer_limit'] = (float) ($payload['cash_drawer_limit'] ?? 0);
         if (isset($payload['password']) && $payload['password']) {
             $payload['password'] = Hash::make($payload['password']);
         } else {
             unset($payload['password']);
         }
 
-        $user = $this->editId
-            ? tap(User::findOrFail($this->editId))->update($payload)
-            : User::create($payload);
+        try {
+            $user = $this->editId
+                ? tap(User::findOrFail($this->editId))->update($payload)
+                : User::create($payload);
 
-        if ($this->role) {
-            try { $user->syncRoles([$this->role]); } catch (\Throwable $e) {}
+            if ($this->role) {
+                try { $user->syncRoles([$this->role]); } catch (\Throwable $e) {}
+            }
+
+            session()->flash('success', 'User saved.');
+            $this->reset(['editId','password']);
+            $this->showForm = false;
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Defensive — should be caught by the validator above, but DB-level
+            // catch ensures any other unique key (employee_code, phone, etc.)
+            // surfaces as a flash error instead of a 500.
+            session()->flash('error', 'This user conflicts with an existing record (duplicate email, employee code, or phone). Please change the duplicated field.');
+        } catch (\Throwable $e) {
+            \Log::error('User save failed: ' . $e->getMessage());
+            session()->flash('error', 'Could not save user: ' . $e->getMessage());
         }
-
-        session()->flash('success', 'User saved.');
-        $this->reset(['editId','password']);
-        $this->showForm = false;
     }
 
     public function toggleActive(int $id): void

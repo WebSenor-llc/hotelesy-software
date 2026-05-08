@@ -25,6 +25,7 @@ class Room extends Model
     protected $fillable = [
         'tenant_id', 'property_id', 'room_type_id',
         'number', 'floor', 'wing', 'view',
+        'image_path', 'notes',
         'status', 'fo_status',
         'out_of_order_reason', 'out_of_order_until',
         'is_smoking', 'is_accessible', 'has_extra_bed',

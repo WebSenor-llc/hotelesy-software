@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Reservations;
 
+use App\Models\Guest;
 use App\Models\Promotion;
 use App\Models\PromotionRedemption;
 use App\Models\RatePlan;
@@ -21,6 +22,24 @@ class NewBooking extends Component
     public string $guest_name = '';
     public string $guest_phone = '';
     public string $guest_email = '';
+
+    // ID proof — captured at booking so check-in is friction-free.
+    // Document files are uploaded later at check-in (see CheckIn flow).
+    public string $id_type = 'aadhaar';
+    public string $id_number = '';
+
+    // Foreign-national / FRRO Form-C fields. Section 14 of the Foreigners Act, 1946
+    // and Form C requirements. Hotels MUST report foreign guests within 24 hours.
+    public bool $is_foreign_national = false;
+    public string $nationality = 'IN';
+    public string $passport_number = '';
+    public ?string $passport_expiry = null;
+    public string $visa_number = '';
+    public ?string $visa_expiry = null;
+    public string $arrival_from_country = '';
+    public ?string $arrival_date_in_india = null;
+    public string $next_destination = '';
+
     public ?int $room_type_id = null;
     public ?int $rate_plan_id = null;
     public string $arrival_date;
@@ -54,6 +73,19 @@ class NewBooking extends Component
             'guest_name'      => 'required|string|min:2|max:255',
             'guest_phone'     => 'nullable|string|max:30',
             'guest_email'     => 'nullable|email',
+            'id_type'         => 'required|in:aadhaar,passport,voter,driving_license,pan,other',
+            'id_number'       => 'nullable|string|max:50',
+            // Foreign-national fields are required only when the toggle is on.
+            // Form C / FRRO requires passport + visa for non-Indian guests.
+            'is_foreign_national'      => 'boolean',
+            'nationality'              => 'required|string|size:2',
+            'passport_number'          => 'nullable|required_if:is_foreign_national,true|string|max:30',
+            'passport_expiry'          => 'nullable|date',
+            'visa_number'              => 'nullable|required_if:is_foreign_national,true|string|max:30',
+            'visa_expiry'              => 'nullable|date',
+            'arrival_from_country'     => 'nullable|string|max:100',
+            'arrival_date_in_india'    => 'nullable|date',
+            'next_destination'         => 'nullable|string|max:100',
             'room_type_id'    => 'required|exists:room_types,id',
             'rate_plan_id'    => 'nullable|exists:rate_plans,id',
             'arrival_date'    => 'required|date|after_or_equal:today',
@@ -299,11 +331,45 @@ class NewBooking extends Component
             $arrival, $departure, $nights,
             $nightlyExTax, $roomRevenue, $totalTax, $discount, $totalAmount, $resNumber
         ) {
+            // Create or reuse a Guest record so FRRO / Form-C / police-register
+            // queries have something to scope on. We dedupe loosely by phone+name
+            // within tenant — exact dedup is later (CRM merge).
+            $guest = null;
+            if (!empty(trim($data['guest_name']))) {
+                $parts = preg_split('/\s+/', trim($data['guest_name']), 2);
+                $guest = Guest::firstOrCreate(
+                    [
+                        'tenant_id' => $tenant->id,
+                        'phone'     => $data['guest_phone'] ?: null,
+                        'first_name'=> $parts[0] ?? $data['guest_name'],
+                    ],
+                    [
+                        'last_name' => $parts[1] ?? '',
+                        'email'     => $data['guest_email'] ?: null,
+                    ]
+                );
+                // Always update compliance fields on the Guest — these may have
+                // been entered/changed since the guest was first created.
+                $guest->update(array_filter([
+                    'id_type'                  => $data['id_type'] ?? null,
+                    'id_number'                => $data['id_number'] ?: null,
+                    'nationality'              => ($data['nationality'] ?? null) ?: 'IN',
+                    'is_foreign_national'      => (bool) ($data['is_foreign_national'] ?? false),
+                    'passport_number'          => $data['passport_number'] ?: null,
+                    'passport_expiry'          => $data['passport_expiry'] ?: null,
+                    'visa_number'              => $data['visa_number'] ?: null,
+                    'visa_expiry'              => $data['visa_expiry'] ?: null,
+                    'arrival_in_india'         => $data['arrival_date_in_india'] ?: null,
+                    'next_destination'         => $data['next_destination'] ?: null,
+                ], fn($v) => $v !== null && $v !== ''));
+            }
+
             $reservation = Reservation::create([
                 'tenant_id'           => $tenant->id,
                 'property_id'         => $property->id,
                 'reservation_number'  => $resNumber,
                 'confirmation_number' => 'CONF-'.strtoupper(substr(md5(uniqid()), 0, 8)),
+                'guest_id'            => $guest?->id,
                 'guest_name'          => $data['guest_name'],
                 'guest_phone'         => $data['guest_phone'] ?? null,
                 'guest_email'         => $data['guest_email'] ?? null,

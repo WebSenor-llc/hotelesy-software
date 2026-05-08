@@ -48,6 +48,7 @@
         ['Operations' => [
             ['key' => 'housekeeping.index', 'label' => 'Housekeeping',          'icon' => '✦', 'perm' => 'housekeeping.view'],
             ['key' => 'pos.index',          'label' => 'POS / Restaurant',      'icon' => '🍴', 'perm' => 'pos.view'],
+            ['key' => 'pos.fb-manager',     'label' => 'F&B Manager dashboard', 'icon' => '◔', 'perm' => 'pos.view'],
             ['key' => 'kds.index',          'label' => 'Kitchen Display',       'icon' => '◴', 'perm' => 'pos.view'],
             ['key' => 'amenities.index',    'label' => 'Amenities & services',  'icon' => '✧', 'perm' => 'frontoffice.view'],
             ['key' => 'banquet.index',      'label' => 'Banquet & events',      'icon' => '◈', 'perm' => 'banquet.view'],
@@ -85,6 +86,7 @@
             ['key' => 'setup.hub',         'label' => 'Setup hub',          'icon' => '⚙', 'perm' => 'setup.view'],
             ['key' => 'setup.properties',  'label' => 'Properties',         'icon' => '🏨', 'perm' => 'setup.view'],
             ['key' => 'setup.property',    'label' => 'Property settings',  'icon' => '◰', 'perm' => 'setup.edit'],
+            ['key' => 'setup.site-cms',    'label' => 'Public website CMS', 'icon' => '🌐', 'perm' => 'setup.edit'],
             ['key' => 'setup.room-types',  'label' => 'Room types',         'icon' => '◰', 'perm' => 'setup.edit'],
             ['key' => 'setup.rooms',       'label' => 'Rooms',              'icon' => '▢', 'perm' => 'setup.edit'],
             ['key' => 'setup.rate-plans',  'label' => 'Rate plans',         'icon' => '◧', 'perm' => 'setup.edit'],
@@ -160,6 +162,27 @@
             <div class="text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-0.5">Property</div>
             <div class="font-semibold text-sm text-slate-900 leading-tight">{{ $property->name }}</div>
             <div class="text-xs text-slate-500">{{ $property->city }}, {{ $property->country }}</div>
+            @if($tenant?->slug && !auth()->user()?->is_super_admin)
+                @php
+                    // Build the public-website URL from the CURRENT request so
+                    // it always matches the host/port the admin is on right now.
+                    // - 127.0.0.1 / localhost → use /h/{slug}/ fallback (no DNS)
+                    // - hotelesy.test:8000   → http://{slug}.hotelesy.test:8000/
+                    // - hotelesy.com         → https://{slug}.hotelesy.com/
+                    $req = request();
+                    $host = $req->getHost();
+                    $port = $req->getPort();
+                    $scheme = $req->getScheme();
+                    $portSuffix = (in_array($port, [80, 443]) || empty($port)) ? '' : ':' . $port;
+                    $isDevPlain = in_array($host, ['127.0.0.1','localhost','0.0.0.0']);
+                    $publicUrl  = $isDevPlain
+                        ? url('/h/' . $tenant->slug)
+                        : $scheme . '://' . $tenant->slug . '.' . $host . $portSuffix;
+                @endphp
+                <a href="{{ $publicUrl }}" target="_blank" class="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-brand-600 hover:underline">
+                    🌐 View public website ↗
+                </a>
+            @endif
         </div>
         @endif
 

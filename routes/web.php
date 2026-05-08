@@ -26,6 +26,7 @@ use App\Livewire\Housekeeping\RoomBoard as HousekeepingBoard;
 use App\Livewire\Integrations\Status as IntegrationsStatus;
 use App\Livewire\KDS\StationView as KdsStationView;
 use App\Livewire\Operations\NightAudit;
+use App\Livewire\POS\FbManagerDashboard;
 use App\Livewire\POS\PosDashboard;
 use App\Livewire\Rates\RateCalendar;
 use App\Livewire\Reports\DailyFlash;
@@ -52,6 +53,7 @@ use App\Livewire\Setup\PosOutlets as SetupPosOutlets;
 use App\Livewire\Setup\PosTables as SetupPosTables;
 use App\Livewire\Setup\PropertiesList;
 use App\Livewire\Setup\PropertySettings;
+use App\Livewire\Setup\SiteCms;
 use App\Livewire\Setup\RatePlans;
 use App\Livewire\Setup\RoomTypes;
 use App\Livewire\Setup\Rooms as SetupRooms;
@@ -63,7 +65,50 @@ use App\Livewire\Store\Categories as StoreCategories;
 use App\Livewire\Store\Dashboard as StoreDashboard;
 use Illuminate\Support\Facades\Route;
 
-// Public marketing routes — no auth, no tenant.
+// ============================================================
+// PUBLIC HOTEL WEBSITE — subdomain routing
+// awesomeberg.hotelesy.test → that tenant's public hotel site
+// On localhost (127.0.0.1) we fall back to /h/{slug}/... below.
+// ============================================================
+//
+// Registers the subdomain group for EVERY plausible central domain
+// (env CENTRAL_DOMAIN + APP_URL host + sensible fallbacks) so the
+// routes match even if env is stale or the user runs on a non-default
+// host. Route names get a numeric suffix to avoid collisions; we keep
+// the main names ("hotel.home", "hotel.rooms" etc.) bound to the first
+// (env-preferred) registration.
+$centralDomains = collect([
+    trim((string) env('CENTRAL_DOMAIN', '')),
+    parse_url((string) env('APP_URL', ''), PHP_URL_HOST),
+    'hotelesy.test',
+    'hotelesy.com',
+])->filter()->unique()->values()->all();
+
+foreach ($centralDomains as $idx => $centralDomain) {
+    $suffix = $idx === 0 ? '' : '.' . $idx;   // first one keeps the canonical names
+    Route::domain('{tenant_slug}.' . $centralDomain)->group(function () use ($suffix) {
+        Route::get('/',          \App\Livewire\HotelSite\Home::class)->name('hotel.home' . $suffix);
+        Route::get('/rooms',     \App\Livewire\HotelSite\RoomsList::class)->name('hotel.rooms' . $suffix);
+        Route::get('/rooms/{roomTypeCode}', \App\Livewire\HotelSite\RoomDetail::class)->name('hotel.room.show' . $suffix);
+        Route::get('/gallery',   \App\Livewire\HotelSite\Gallery::class)->name('hotel.gallery' . $suffix);
+        Route::get('/contact',   \App\Livewire\HotelSite\Contact::class)->name('hotel.contact' . $suffix);
+        Route::get('/about',     \App\Livewire\HotelSite\About::class)->name('hotel.about' . $suffix);
+        Route::get('/book',      \App\Livewire\HotelSite\BookingFlow::class)->name('hotel.book' . $suffix);
+    });
+}
+
+// Local-dev fallback: works without DNS via /h/{slug}/...
+Route::prefix('h/{tenant_slug}')->group(function () {
+    Route::get('/',          \App\Livewire\HotelSite\Home::class)->name('hotel.home.dev');
+    Route::get('/rooms',     \App\Livewire\HotelSite\RoomsList::class)->name('hotel.rooms.dev');
+    Route::get('/rooms/{roomTypeCode}', \App\Livewire\HotelSite\RoomDetail::class)->name('hotel.room.show.dev');
+    Route::get('/gallery',   \App\Livewire\HotelSite\Gallery::class)->name('hotel.gallery.dev');
+    Route::get('/contact',   \App\Livewire\HotelSite\Contact::class)->name('hotel.contact.dev');
+    Route::get('/about',     \App\Livewire\HotelSite\About::class)->name('hotel.about.dev');
+    Route::get('/book',      \App\Livewire\HotelSite\BookingFlow::class)->name('hotel.book.dev');
+});
+
+// Public SaaS marketing routes — only on the central domain.
 Route::get('/',           \App\Livewire\Marketing\LandingPage::class)->name('home');
 Route::get('/trial',      \App\Livewire\Marketing\TrialSignup::class)->name('trial.start');
 Route::get('/checkout',   \App\Livewire\Marketing\Checkout::class)->name('checkout');
@@ -82,9 +127,15 @@ Route::get('/app', function () {
 Route::get('/health', fn () => response()->json(['app'=>config('app.name'),'time'=>now()->toIso8601String(),'status'=>'ok']))->name('health');
 
 Route::middleware('guest')->group(function () {
-    Route::get('login',  [LoginController::class, 'show'])->name('login');
-    Route::post('login', [LoginController::class, 'login']);
-    Route::get('register', Register::class)->name('register');
+    // Primary hotelier login URL
+    Route::get('hotelier/login',  [LoginController::class, 'show'])->name('login');
+    Route::post('hotelier/login', [LoginController::class, 'login']);
+    Route::get('hotelier/register', Register::class)->name('register');
+
+    // Legacy aliases — keep working for old bookmarks AND any cached form actions
+    Route::get('login',   fn () => redirect()->route('login'));
+    Route::post('login',  [LoginController::class, 'login']);   // ← form alias
+    Route::get('register', fn () => redirect()->route('register'));
 });
 Route::post('logout', [LoginController::class, 'logout'])->middleware('auth')->name('logout');
 
@@ -146,7 +197,8 @@ Route::middleware(['auth', 'tenant', 'license', 'rbac'])->group(function () {
 
         // ----- Operations
         Route::get('housekeeping', HousekeepingBoard::class)->name('housekeeping.index');
-        Route::get('pos',          PosDashboard::class)->name('pos.index');
+        Route::get('pos',                 PosDashboard::class)->name('pos.index');
+        Route::get('pos/fb-manager',      FbManagerDashboard::class)->name('pos.fb-manager');
         Route::get('kds',          KdsStationView::class)->name('kds.index');
         Route::get('amenities',    AmenitiesHub::class)->name('amenities.index');
         Route::get('banquet',      BanquetCalendar::class)->name('banquet.index');
@@ -176,6 +228,7 @@ Route::middleware(['auth', 'tenant', 'license', 'rbac'])->group(function () {
         // ----- Setup
         Route::get('setup',                  SetupHub::class)->name('setup.hub');
         Route::get('setup/property',         PropertySettings::class)->name('setup.property');
+        Route::get('setup/site-cms',         SiteCms::class)->name('setup.site-cms');
         Route::get('setup/room-types',       RoomTypes::class)->name('setup.room-types');
         Route::get('setup/rooms',            SetupRooms::class)->name('setup.rooms');
         Route::get('setup/rate-plans',       RatePlans::class)->name('setup.rate-plans');

@@ -34,14 +34,34 @@
         </div>
     </div>
 
-    @if(session('success'))<div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">{{ session('success') }}</div>@endif
+    @if(session('success'))<div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">✓ {{ session('success') }}</div>@endif
+    @if(session('error'))<div class="mb-4 px-4 py-3 rounded-lg bg-rose-50 text-rose-800 border border-rose-200">✗ {{ session('error') }}</div>@endif
+    @if(session('warning'))<div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 border border-amber-200">⚠ {{ session('warning') }}</div>@endif
+    @if($errors->any())
+        <div class="mb-4 px-4 py-3 rounded-lg bg-rose-50 text-rose-800 border border-rose-200 text-sm">
+            <div class="font-semibold mb-1">Please fix:</div>
+            <ul class="list-disc list-inside text-xs">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
+        </div>
+    @endif
 
     {{-- Tabs --}}
+    @php
+        // The Cancel tab's label and visibility depend on stay state. After
+        // check-in/check-out, cancellation no longer applies — relabel to
+        // "Status" or hide entirely so the cashier doesn't try the wrong action.
+        $cancelLabel = match ($reservation->status) {
+            'cancelled'    => 'Cancelled',
+            'checked_out'  => 'Complete',
+            'checked_in'   => 'In-house',
+            default        => 'Cancel',
+        };
+        $tabsOrdered = ['stay'=>'Stay','edit'=>'Edit','folio'=>'Folio','charges'=>'Post charge','payments'=>'Post payment','status'=>'Change status','documents'=>'Documents','cancel'=>$cancelLabel,'guest'=>'Guest'];
+    @endphp
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden mb-6">
         <div class="border-b border-slate-200 flex flex-wrap">
-            @foreach(['stay'=>'Stay','edit'=>'Edit','folio'=>'Folio','charges'=>'Post charge','payments'=>'Post payment','status'=>'Change status','cancel'=>'Cancel','guest'=>'Guest'] as $key=>$label)
+            @foreach($tabsOrdered as $key=>$label)
                 <button type="button" wire:click="$set('tab', '{{ $key }}')"
-                    class="px-4 py-3 text-sm font-medium border-b-2 transition {{ $tab === $key ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-600 hover:text-slate-900' }} {{ $key === 'cancel' ? 'text-rose-600' : '' }}">
+                    class="px-4 py-3 text-sm font-medium border-b-2 transition {{ $tab === $key ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-600 hover:text-slate-900' }} {{ $key === 'cancel' && $reservation->status !== 'cancelled' && !in_array($reservation->status, ['checked_in','checked_out']) ? 'text-rose-600' : '' }} {{ $key === 'cancel' && $reservation->status === 'checked_out' ? 'text-emerald-700' : '' }}">
                     {{ $label }}
                 </button>
             @endforeach
@@ -120,6 +140,28 @@
                 <div><label class="block text-xs font-medium mb-1">Adults *</label><input type="number" min="1" wire:model="e_adults" class="w-full px-3 py-2 border rounded-lg text-sm"></div>
                 <div><label class="block text-xs font-medium mb-1">Children</label><input type="number" min="0" wire:model="e_children" class="w-full px-3 py-2 border rounded-lg text-sm"></div>
                 <div><label class="flex items-center gap-2 text-sm mt-6"><input type="checkbox" wire:model="e_is_vip" class="rounded">Mark as VIP</label></div>
+
+                {{-- Foreign-national / FRRO Form C — fields live on the Guest record.
+                     Saving updates the Guest so Police register + Form C lists pick it up. --}}
+                <div class="md:col-span-3 pt-3 border-t mt-2 bg-amber-50/30 -mx-2 px-2 py-3 rounded">
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-sm font-semibold uppercase tracking-wider text-amber-900">🇮🇳 Foreign national / Form C</h3>
+                        <label class="flex items-center gap-2 text-sm cursor-pointer">
+                            <input type="checkbox" wire:model.live="e_is_foreign_national" class="rounded">
+                            <span class="font-medium text-amber-900">Foreign national</span>
+                        </label>
+                    </div>
+                    <p class="text-[11px] text-amber-800 mb-2">Tick this so the guest appears in the Police Register / FRRO Form C lists.</p>
+                </div>
+                @if($e_is_foreign_national)
+                    <div><label class="block text-xs font-medium mb-1">Nationality (ISO 2) *</label><input type="text" wire:model="e_nationality" maxlength="2" class="w-full px-3 py-2 border rounded-lg text-sm uppercase font-mono"></div>
+                    <div><label class="block text-xs font-medium mb-1">Passport no. *</label><input type="text" wire:model="e_passport_number" class="w-full px-3 py-2 border rounded-lg text-sm">@error('e_passport_number')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror</div>
+                    <div><label class="block text-xs font-medium mb-1">Passport expiry</label><input type="date" wire:model="e_passport_expiry" class="w-full px-3 py-2 border rounded-lg text-sm"></div>
+                    <div><label class="block text-xs font-medium mb-1">Visa no. *</label><input type="text" wire:model="e_visa_number" class="w-full px-3 py-2 border rounded-lg text-sm">@error('e_visa_number')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror</div>
+                    <div><label class="block text-xs font-medium mb-1">Visa expiry</label><input type="date" wire:model="e_visa_expiry" class="w-full px-3 py-2 border rounded-lg text-sm"></div>
+                    <div><label class="block text-xs font-medium mb-1">Arrived in India on</label><input type="date" wire:model="e_arrival_in_india" class="w-full px-3 py-2 border rounded-lg text-sm"></div>
+                    <div class="md:col-span-2"><label class="block text-xs font-medium mb-1">Next destination</label><input type="text" wire:model="e_next_destination" class="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Country / city"></div>
+                @endif
 
                 <div class="md:col-span-3 pt-3 border-t mt-2"><h3 class="text-sm font-semibold uppercase tracking-wider text-slate-500">Source & segment</h3></div>
                 <div><label class="block text-xs font-medium mb-1">Source type *</label>
@@ -207,9 +249,10 @@
                         <option value="food">Food</option><option value="beverage">Beverage</option>
                         <option value="laundry">Laundry</option><option value="mini_bar">Mini bar</option>
                         <option value="spa">Spa</option><option value="telephone">Telephone</option>
-                        <option value="extra_bed">Extra bed</option><option value="package">Package</option>
                         <option value="damage">Damage</option><option value="misc">Miscellaneous</option>
+                        <option value="other">Other</option>
                     </select>
+                    <div class="text-[10px] text-slate-500 mt-1">Use "Miscellaneous" for extra-bed, package, transport, etc.</div>
                 </div>
                 <div><label class="block text-xs font-medium mb-1">Reference</label><input type="text" wire:model="chargeReference" class="w-full px-3 py-2 border rounded-lg text-sm"></div>
                 <div class="md:col-span-2"><label class="block text-xs font-medium mb-1">Description *</label><input type="text" wire:model="chargeDescription" class="w-full px-3 py-2 border rounded-lg text-sm"></div>
@@ -282,7 +325,98 @@
             </form>
         @endif
 
-        {{-- TAB: Cancel --}}
+        {{-- TAB: Documents --}}
+        @if($tab === 'documents')
+            @php
+                $g = $reservation->guest;
+                $files = $g ? (array) ($g->id_proof_files ?? []) : [];
+                $idType = $g?->id_type ? ucfirst(str_replace('_',' ', $g->id_type)) : '—';
+                $idNumber = $g?->id_number ?: '—';
+            @endphp
+
+            {{-- Header card: who this guest is + summary of ID on record --}}
+            <div class="bg-slate-50 rounded-lg p-4 mb-4 border border-slate-200">
+                <div class="flex items-baseline justify-between flex-wrap gap-2">
+                    <div>
+                        <div class="text-xs uppercase tracking-wider text-slate-500">Guest record</div>
+                        <div class="font-semibold text-slate-900">{{ $g ? trim(($g->first_name ?? '').' '.($g->last_name ?? '')) : $reservation->guest_name }}</div>
+                    </div>
+                    <div class="text-sm text-right">
+                        <div><span class="text-slate-500">ID type:</span> <strong>{{ $idType }}</strong></div>
+                        <div><span class="text-slate-500">ID number:</span> <strong class="font-mono">{{ $idNumber }}</strong></div>
+                        @if($g?->is_foreign_national)
+                            <div class="text-amber-700 mt-1">🇮🇳 Foreign national · Passport: <strong class="font-mono">{{ $g->passport_number ?: '—' }}</strong></div>
+                        @endif
+                    </div>
+                </div>
+                @if(!$g)
+                    <div class="text-xs text-amber-700 mt-2">⚠ This reservation has no linked Guest profile yet. Uploading a document will create one.</div>
+                @endif
+            </div>
+
+            {{-- Existing files grid --}}
+            @if(empty($files))
+                <div class="text-center py-8 bg-white border border-dashed border-slate-300 rounded-lg mb-4">
+                    <div class="text-sm text-slate-400 mb-1">No ID documents on file yet.</div>
+                    <div class="text-xs text-slate-400">Upload below — JPG / PNG / PDF / WebP, max 5 MB each.</div>
+                </div>
+            @else
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                    @foreach($files as $idx => $path)
+                        @php
+                            $url = asset('storage/' . ltrim($path, '/'));
+                            $isPdf = str_ends_with(strtolower($path), '.pdf');
+                            $name  = basename($path);
+                        @endphp
+                        <div class="border border-slate-200 rounded-lg overflow-hidden bg-white relative group">
+                            @if($isPdf)
+                                <a href="{{ $url }}" target="_blank" class="block aspect-square flex flex-col items-center justify-center bg-rose-50 hover:bg-rose-100 transition">
+                                    <span class="text-4xl">📄</span>
+                                    <span class="text-[10px] font-mono text-rose-700 mt-1 px-2 truncate w-full text-center">PDF</span>
+                                </a>
+                            @else
+                                <a href="{{ $url }}" target="_blank" class="block aspect-square">
+                                    <img src="{{ $url }}" alt="{{ $name }}" class="w-full h-full object-cover">
+                                </a>
+                            @endif
+                            <div class="px-2 py-1.5 border-t border-slate-100 text-[10px] flex items-center justify-between">
+                                <span class="truncate text-slate-600 font-mono" title="{{ $name }}">{{ Str::limit($name, 18) }}</span>
+                                <button type="button"
+                                        wire:click="deleteDocument(@js($path))"
+                                        wire:confirm="Delete this document permanently?"
+                                        class="text-rose-600 hover:bg-rose-50 px-1.5 py-0.5 rounded ml-1"
+                                        title="Delete">
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+
+            {{-- Upload form --}}
+            <form wire:submit.prevent="uploadDocuments" class="bg-white border border-slate-200 rounded-lg p-4">
+                <div class="text-sm font-semibold text-slate-900 mb-1">Add document(s)</div>
+                <div class="text-xs text-slate-500 mb-3">Upload guest ID proofs — Aadhaar (front+back), passport, visa, driving licence, or any other supporting document.</div>
+                <input type="file" wire:model="documentUploads" multiple
+                       accept="image/*,application/pdf"
+                       class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-slate-100 file:text-slate-700 file:font-semibold">
+                @error('documentUploads.*')<div class="text-xs text-rose-600 mt-1">{{ $message }}</div>@enderror
+                <div wire:loading wire:target="documentUploads" class="text-xs text-brand-600 mt-2">Uploading…</div>
+
+                <div class="flex justify-end mt-3 pt-3 border-t border-slate-100">
+                    <button type="submit"
+                            class="bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 text-white font-semibold px-5 py-2 rounded-lg text-sm"
+                            @disabled(empty($documentUploads))
+                            wire:loading.attr="disabled" wire:target="uploadDocuments">
+                        <span wire:loading.remove wire:target="uploadDocuments">Save documents</span>
+                        <span wire:loading wire:target="uploadDocuments">Saving…</span>
+                    </button>
+                </div>
+            </form>
+        @endif
+
+        {{-- TAB: Cancel / Complete / In-house — content adapts to reservation status --}}
         @if($tab === 'cancel')
             @if($reservation->status === 'cancelled')
                 <div class="bg-rose-50 border border-rose-200 rounded-lg p-5">
@@ -290,6 +424,30 @@
                     <div class="text-sm text-rose-800">Cancelled at: {{ $reservation->cancelled_at?->format('d M Y H:i') }}</div>
                     <div class="text-sm text-rose-800 mt-1">Reason: {{ $reservation->cancellation_reason ?: '—' }}</div>
                     <div class="text-sm text-rose-800 mt-1">Cancellation charge: ₹{{ number_format($reservation->cancellation_charge ?? 0, 2) }}</div>
+                </div>
+            @elseif($reservation->status === 'checked_out')
+                <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-5">
+                    <div class="font-semibold text-emerald-900 mb-2 flex items-center gap-2">
+                        <span class="text-xl">✓</span> Stay complete
+                    </div>
+                    <div class="text-sm text-emerald-800">Guest checked out: {{ $reservation->status_changed_at?->format('d M Y H:i') ?: '—' }}</div>
+                    <div class="text-sm text-emerald-800 mt-1">Total billed: ₹{{ number_format($reservation->total_amount, 2) }}</div>
+                    <div class="text-sm text-emerald-800 mt-1">Total paid: ₹{{ number_format($reservation->paid_amount ?? 0, 2) }}</div>
+                    @if(($reservation->balance_amount ?? 0) > 0.01)
+                        <div class="text-sm text-amber-800 mt-1">⚠ Open balance ₹{{ number_format($reservation->balance_amount, 2) }} (likely on city ledger)</div>
+                    @endif
+                    <div class="text-xs text-emerald-700 mt-3">Cancellation no longer applies. For refunds or post-stay adjustments, use <strong>Post payment</strong> (negative amount) or contact accounts.</div>
+                </div>
+            @elseif($reservation->status === 'checked_in')
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-5">
+                    <div class="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                        <span class="text-xl">🛏</span> Guest is currently in-house
+                    </div>
+                    <div class="text-sm text-blue-800">Checked in: {{ $reservation->status_changed_at?->format('d M Y H:i') ?: '—' }}</div>
+                    @if($reservation->rooms->first()?->room?->number)
+                        <div class="text-sm text-blue-800 mt-1">Room: {{ $reservation->rooms->first()->room->number }}</div>
+                    @endif
+                    <div class="text-xs text-blue-700 mt-3">A checked-in reservation can't be cancelled. To end this stay, use the <a href="/front-office/check-out" class="underline font-semibold">Check-out</a> flow instead — that will settle the folio and free the room.</div>
                 </div>
             @else
                 <div class="bg-rose-50 border border-rose-200 rounded-lg p-5 mb-4">

@@ -232,7 +232,10 @@ class GroupBooking extends Component
                         'total_rate'     => $totalRate,
                         'total_tax'      => $taxAmt,
                         'total_amount'   => $totalRate + $taxAmt,
-                        'status'         => 'confirmed',
+                        // reservation_rooms.status is a different enum from reservations.status
+                        // — 'booked' / 'checked_in' / 'checked_out' / 'cancelled' / 'no_show'.
+                        // 'confirmed' isn't a valid reservation_room state.
+                        'status'         => 'booked',
                     ]);
                 }
             }

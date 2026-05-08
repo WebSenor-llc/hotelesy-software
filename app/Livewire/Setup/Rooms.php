@@ -6,12 +6,16 @@ use App\Models\Room;
 use App\Models\RoomType;
 use App\Services\TenantContext;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 #[Layout('layouts.app-shell')]
 class Rooms extends Component
 {
+    use WithFileUploads;
+
     public bool $showForm = false;
     public ?int $editId = null;
     public string $number = ''; public ?int $room_type_id = null;
@@ -20,6 +24,11 @@ class Rooms extends Component
     public bool $is_smoking = false; public bool $is_accessible = false;
     public bool $is_active = true;
     public string $filter = '';
+
+    // File uploads
+    public $imageUpload = null;
+    public ?string $existingImagePath = null;
+    public ?string $notes = null;
 
     // Bulk create form
     public bool $showBulkForm = false;
@@ -33,7 +42,7 @@ class Rooms extends Component
 
     public function startCreate(): void
     {
-        $this->reset(['editId','number','wing','view','room_type_id','is_smoking','is_accessible']);
+        $this->reset(['editId','number','wing','view','room_type_id','is_smoking','is_accessible','imageUpload','existingImagePath','notes']);
         $this->floor = 1;
         $this->status = 'vacant_clean';
         $this->fo_status = 'vacant';
@@ -44,33 +53,113 @@ class Rooms extends Component
 
     public function cancelForm(): void
     {
-        $this->reset(['editId','number','wing','view','room_type_id','is_smoking','is_accessible']);
+        $this->reset(['editId','number','wing','view','room_type_id','is_smoking','is_accessible','imageUpload','existingImagePath','notes']);
         $this->showForm = false;
     }
 
     public function startEdit(int $id): void
     {
-        $r = Room::findOrFail($id);
+        $r = app(TenantContext::class)->bypass(fn () => Room::findOrFail($id));
         $this->editId = $id;
-        foreach (['number','room_type_id','floor','wing','view','status','fo_status','is_smoking','is_accessible','is_active'] as $f) {
-            $this->$f = $r->$f;
-        }
+
+        // Coerce nulls to safe defaults so typed Livewire properties don't TypeError
+        $this->number       = (string) ($r->number ?? '');
+        $this->room_type_id = $r->room_type_id;
+        $this->floor        = $r->floor !== null ? (int) $r->floor : 1;
+        $this->wing         = (string) ($r->wing ?? '');
+        $this->view         = (string) ($r->view ?? '');
+        $this->status       = (string) ($r->status ?? 'vacant_clean');
+        $this->fo_status    = (string) ($r->fo_status ?? 'vacant');
+        $this->is_smoking   = (bool) ($r->is_smoking ?? false);
+        $this->is_accessible= (bool) ($r->is_accessible ?? false);
+        $this->is_active    = (bool) ($r->is_active ?? true);
+        $this->existingImagePath = $r->image_path;
+        $this->notes        = $r->notes;
+        $this->imageUpload  = null;
+
+        $this->resetErrorBag();
         $this->showForm = true;
         $this->showBulkForm = false;
+    }
+
+    public function removeImage(): void
+    {
+        if ($this->existingImagePath) {
+            try { Storage::delete('public/' . $this->existingImagePath); } catch (\Throwable $e) {}
+            if ($this->editId) {
+                $ctx = app(TenantContext::class);
+                $ctx->bypass(fn () => Room::findOrFail($this->editId)->update(['image_path' => null]));
+            }
+            $this->existingImagePath = null;
+            session()->flash('success', 'Image removed.');
+        }
     }
 
     public function save(): void
     {
         $data = $this->validate([
-            'number'=>'required|string|max:20','room_type_id'=>'required|exists:room_types,id',
-            'floor'=>'integer','wing'=>'nullable|string|max:30','view'=>'nullable|string|max:50',
-            'status'=>'required','fo_status'=>'required',
-            'is_smoking'=>'boolean','is_accessible'=>'boolean','is_active'=>'boolean',
+            'number'      => 'required|string|max:20',
+            'room_type_id'=> 'required|exists:room_types,id',
+            'floor'       => 'integer',
+            'wing'        => 'nullable|string|max:30',
+            'view'        => 'nullable|string|max:50',
+            'status'      => 'required',
+            'fo_status'   => 'required',
+            'is_smoking'  => 'boolean',
+            'is_accessible'=> 'boolean',
+            'is_active'   => 'boolean',
+            'imageUpload' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'notes'       => 'nullable|string|max:2000',
         ]);
-        $data['property_id'] = app(TenantContext::class)->propertyId();
-        if ($this->editId) Room::findOrFail($this->editId)->update($data); else Room::create($data);
-        session()->flash('success','Room saved.');
-        $this->reset(['editId','number','wing','view','room_type_id','is_smoking','is_accessible']);
+
+        $ctx = app(TenantContext::class);
+        $data['property_id'] = $ctx->propertyId();
+        $data['tenant_id']   = $ctx->tenantId();
+        $data['notes']       = $this->notes;
+
+        // Strip the upload key (it's not a column) — must remove BEFORE the create/update
+        unset($data['imageUpload']);
+
+        // File upload
+        if ($this->imageUpload) {
+            try {
+                $tenantId   = $ctx->tenantId() ?: 0;
+                $propertyId = $ctx->propertyId() ?: 0;
+                // Store on the public disk so storage:link makes them web-accessible at /storage/...
+                $path = $this->imageUpload->store("rooms/{$tenantId}/{$propertyId}", 'public');
+                if (! $path) {
+                    throw new \RuntimeException('Storage returned no path');
+                }
+                $data['image_path'] = $path;
+
+                // Delete old image if replacing
+                if ($this->existingImagePath) {
+                    try { Storage::disk('public')->delete($this->existingImagePath); } catch (\Throwable $e) {}
+                }
+            } catch (\Throwable $e) {
+                session()->flash('error', 'Image upload failed: ' . $e->getMessage());
+                return;
+            }
+        } else {
+            // Preserve existing image when no new upload
+            if ($this->editId && $this->existingImagePath) {
+                $data['image_path'] = $this->existingImagePath;
+            }
+        }
+
+        try {
+            if ($this->editId) {
+                $ctx->bypass(fn () => Room::findOrFail($this->editId)->update($data));
+            } else {
+                Room::create($data);
+            }
+        } catch (\Throwable $e) {
+            session()->flash('error', 'Failed to save room: ' . $e->getMessage());
+            return;
+        }
+
+        session()->flash('success', 'Room saved.');
+        $this->reset(['editId','number','wing','view','room_type_id','is_smoking','is_accessible','imageUpload','existingImagePath','notes']);
         $this->showForm = false;
     }
 

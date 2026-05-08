@@ -9,6 +9,13 @@
     <p class="text-sm text-slate-600 mb-6">Dining tables and sections inside each outlet.</p>
 
     @if(session('success'))<div class="mb-4 px-4 py-2.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-sm">{{ session('success') }}</div>@endif
+    @if(session('error'))<div class="mb-4 px-4 py-2.5 rounded-lg bg-rose-50 text-rose-800 border border-rose-200 text-sm">{{ session('error') }}</div>@endif
+    @if($errors->any())
+        <div class="mb-4 px-4 py-2.5 rounded-lg bg-rose-50 text-rose-800 border border-rose-200 text-sm">
+            <div class="font-semibold mb-1">Please fix:</div>
+            <ul class="list-disc list-inside text-xs">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
+        </div>
+    @endif
 
     <div class="mb-4 flex items-center gap-3">
         <label class="text-xs font-medium text-slate-500">Filter outlet</label>
