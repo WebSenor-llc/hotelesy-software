@@ -44,12 +44,12 @@
                 @csrf
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 mb-1.5">Email address</label>
-                    <input type="email" name="email" value="{{ old('email', 'admin@miraj-demo.test') }}" required autofocus
+                    <input type="email" name="email" value="{{ old('email') }}" required autofocus
                         class="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 mb-1.5">Password</label>
-                    <input type="password" name="password" value="password" required
+                    <input type="password" name="password" value="" required
                         class="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition">
                 </div>
                 <div class="flex items-center justify-between">
@@ -62,16 +62,6 @@
                     Sign in
                 </button>
             </form>
-
-            <div class="mt-6 pt-6 border-t border-slate-200">
-                <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Demo accounts</div>
-                <ul class="text-xs text-slate-600 space-y-1">
-                    <li><code class="text-slate-800 font-mono">admin@miraj-demo.test</code> · Owner / Director</li>
-                    <li><code class="text-slate-800 font-mono">fom@miraj-demo.test</code> · Front Office Manager</li>
-                    <li><code class="text-slate-800 font-mono">cashier@miraj-demo.test</code> · Cashier</li>
-                </ul>
-                <div class="text-xs text-slate-500 mt-2">All passwords: <code class="font-mono">password</code></div>
-            </div>
         </div>
 
         <div class="text-center mt-6 text-xs text-slate-500">
