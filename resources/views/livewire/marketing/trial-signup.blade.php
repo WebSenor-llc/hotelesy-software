@@ -85,9 +85,64 @@
             <div class="text-xs uppercase tracking-widest text-ink-500">Charge today</div>
             <div class="font-mono font-bold text-2xl text-ink-900">₹1.00</div>
         </div>
-        <button id="open-razorpay" class="block mx-auto mt-6 bg-ink-900 hover:bg-ink-800 text-ink-50 font-bold py-4 px-8 rounded-full transition">
-            Pay ₹1 via UPI →
-        </button>
+        @php
+            $rzp = app(\App\Services\RazorpayService::class);
+            $rzpConfig = [
+                'stub'     => $rzp->isStubMode(),
+                'key'      => $rzp->publicKey(),
+                'amount'   => $razorpayOrder['amount'] ?? config('razorpay.mandate_amount_paise'),
+                'currency' => $razorpayOrder['currency'] ?? 'INR',
+                'orderId'  => $razorpayOrder['id'] ?? null,
+            ];
+        @endphp
+        <div x-data="{
+                cfg: @js($rzpConfig),
+                busy: false,
+                err: '',
+                loadSdk() {
+                    if (window.Razorpay) return Promise.resolve();
+                    return new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+                        s.onload = resolve;
+                        s.onerror = () => reject(new Error('Could not reach Razorpay. Check your connection and retry.'));
+                        document.head.appendChild(s);
+                    });
+                },
+                async pay() {
+                    if (this.busy) return;
+                    this.busy = true; this.err = '';
+                    try {
+                        if (this.cfg.stub) { await $wire.testPaymentSuccess(); return; }
+                        await this.loadSdk();
+                        const rzp = new window.Razorpay({
+                            key: this.cfg.key,
+                            amount: this.cfg.amount,
+                            currency: this.cfg.currency,
+                            order_id: this.cfg.orderId,
+                            name: 'Hotelesy by WebSenor',
+                            description: '30-day trial · ₹1 mandate authorization',
+                            method: { upi: true, card: true, netbanking: false, wallet: false },
+                            handler: (r) => $wire.confirmPayment(r.razorpay_payment_id, r.razorpay_order_id, r.razorpay_signature),
+                            modal: { ondismiss: () => $wire.testPaymentFailure() },
+                            theme: { color: '#22201d' }
+                        });
+                        rzp.on('payment.failed', () => $wire.testPaymentFailure());
+                        rzp.open();
+                    } catch (e) {
+                        this.err = e.message;
+                    } finally {
+                        this.busy = false;
+                    }
+                }
+            }">
+            <button type="button" x-on:click="pay()" x-bind:disabled="busy"
+                    class="block mx-auto mt-6 bg-ink-900 hover:bg-ink-800 disabled:opacity-60 text-ink-50 font-bold py-4 px-8 rounded-full transition">
+                <span x-show="!busy">Pay ₹1 via UPI →</span>
+                <span x-show="busy" x-cloak>Opening Razorpay…</span>
+            </button>
+            <p x-show="err" x-cloak x-text="err" class="text-xs text-rose-600 mt-3"></p>
+        </div>
         <p class="text-xs text-ink-500 mt-4">Secured by Razorpay · Your bank's UPI app will open</p>
 
         {{-- ============================================================
@@ -122,40 +177,6 @@
 
     @if(session('warning'))<div class="mt-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-4 text-sm">{{ session('warning') }}</div>@endif
 
-    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script>
-        document.getElementById('open-razorpay')?.addEventListener('click', function () {
-            // In stub mode, the "Pay ₹1" button simulates a real Razorpay flow
-            // by piggy-backing on the test-success handler — no popup opens.
-            if (@json(app(\App\Services\RazorpayService::class)->isStubMode())) {
-                @this.testPaymentSuccess();
-                return;
-            }
-            const options = {
-                key: @json(app(\App\Services\RazorpayService::class)->publicKey()),
-                amount: @json($razorpayOrder['amount']),
-                currency: @json($razorpayOrder['currency'] ?? 'INR'),
-                order_id: @json($razorpayOrder['id']),
-                name: 'Hotelesy by WebSenor',
-                description: '30-day trial · ₹1 mandate authorization',
-                method: { upi: true, card: true, netbanking: false, wallet: false },
-                handler: function (response) {
-                    @this.confirmPayment(response.razorpay_payment_id, response.razorpay_order_id, response.razorpay_signature);
-                },
-                modal: {
-                    ondismiss: function () {
-                        @this.testPaymentFailure();   // user closed Razorpay → mark failed
-                    }
-                },
-                theme: { color: '#22201d' }
-            };
-            const rzp = new Razorpay(options);
-            rzp.on('payment.failed', function (response) {
-                @this.testPaymentFailure();
-            });
-            rzp.open();
-        });
-    </script>
     @endif
 
     {{-- =====================================================
